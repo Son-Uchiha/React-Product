@@ -4,6 +4,7 @@ import { authApi } from "../api/auth";
 type AuthContextType = {
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -18,11 +19,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("refreshToken", data.refreshToken);
     setIsAuthenticated(true);
   };
+  const logout = async () => {
+    const refreshToken = localStorage.getItem("refreshToken");
+    if (refreshToken) {
+      await authApi.logout(refreshToken).catch(() => {});
+    }
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+    setIsAuthenticated(false);
+  };
   return (
     <AuthContext
       value={{
         isAuthenticated,
         login,
+        logout,
       }}
     >
       {children}

@@ -3,7 +3,7 @@ import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import ProductsPage from "./pages/Products/ProductsPage";
 import ProductDetailPage from "./pages/Products/ProductDetailPage";
-import GuestRoute from "./components/GuestRouts";
+import GuestRoute from "./components/GuestRoute";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 const routes = createBrowserRouter([
