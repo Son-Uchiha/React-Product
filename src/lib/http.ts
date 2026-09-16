@@ -31,12 +31,25 @@ const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue = [];
 };
 
+const handleLogout = () => {
+  localStorage.removeItem("accessToken");
+  localStorage.removeItem("refreshToken");
+  if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+    window.location.href = "/login";
+  }
+};
+
 // Request Interceptor: Luôn đính kèm Access Token nếu có
 http.interceptors.request.use(
   (config) => {
     const accessToken = localStorage.getItem("accessToken");
     if (accessToken) {
-      config.headers.Authorization = `Bearer ${accessToken}`;
+      // Tương thích cả Axios v0 và Axios v1
+      if (config.headers?.set) {
+        config.headers.set("Authorization", `Bearer ${accessToken}`);
+      } else {
+        config.headers.Authorization = `Bearer ${accessToken}`;
+      }
     }
     return config;
   },
@@ -49,8 +62,7 @@ http.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config as CustomAxiosRequestConfig | undefined;
 
-    // Kiểm tra mã lỗi 401 và request chưa từng được thử lại
-    // Đồng thời loại trừ endpoint đăng nhập và refresh để tránh vòng lặp vô tận
+    // Bắt lỗi 401, đảm bảo request tồn tại, chưa retry và không phải route auth
     if (
       error.response?.status === 401 &&
       originalRequest &&
@@ -58,19 +70,24 @@ http.interceptors.response.use(
       !originalRequest.url?.includes("/auth/login") &&
       !originalRequest.url?.includes("/auth/refresh")
     ) {
-      // Trường hợp 1: Đang có request khác đi refresh token -> đưa vào hàng đợi chờ
+      // Trường hợp 1: Đang có tiến trình refresh token chạy -> xếp hàng đợi
       if (isRefreshing) {
         return new Promise<string>((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         })
           .then((token) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`;
+            originalRequest._retry = true; // Đánh dấu đã retry để chống lặp
+            if (originalRequest.headers?.set) {
+              originalRequest.headers.set("Authorization", `Bearer ${token}`);
+            } else {
+              originalRequest.headers.Authorization = `Bearer ${token}`;
+            }
             return http(originalRequest);
           })
           .catch((err) => Promise.reject(err));
       }
 
-      // Trường hợp 2: Là request đầu tiên phát hiện 401 -> tiến hành Refresh Token
+      // Trường hợp 2: Là request đầu tiên gặp 401 -> tiến hành Refresh Token
       originalRequest._retry = true;
       isRefreshing = true;
 
@@ -78,41 +95,42 @@ http.interceptors.response.use(
 
       if (!refreshToken) {
         isRefreshing = false;
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
-        window.location.href = "/login";
+        handleLogout();
         return Promise.reject(error);
       }
 
       try {
-        // Dùng axios độc lập (không qua http instance) để không kích hoạt interceptor
+        // Dùng axios thuần để không kích hoạt interceptor của http
         const res = await axios.post<{
           message: string;
           accessToken: string;
-          refreshToken: string;
+          refreshToken?: string;
         }>(`${http.defaults.baseURL}/auth/refresh`, {
           refreshToken,
         });
 
         const { accessToken: newAccessToken, refreshToken: newRefreshToken } = res.data;
 
-        // Cập nhật cả 2 token vào localStorage (vì Backend sử dụng Refresh Token Rotation)
+        // Lưu token mới (Refresh Token Rotation)
         localStorage.setItem("accessToken", newAccessToken);
         if (newRefreshToken) {
           localStorage.setItem("refreshToken", newRefreshToken);
         }
 
-        // Đánh thức tất cả request đang xếp hàng trong queue với token mới
+        // Đánh thức tất cả các request đang đợi trong queue
         processQueue(null, newAccessToken);
 
-        // Gán token mới và thực thi lại chính request ban đầu
-        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        // Gán token mới và gọi lại request ban đầu
+        if (originalRequest.headers?.set) {
+          originalRequest.headers.set("Authorization", `Bearer ${newAccessToken}`);
+        } else {
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        }
         return http(originalRequest);
       } catch (refreshError) {
+        // Báo lỗi cho tất cả các request đang xếp hàng
         processQueue(refreshError, null);
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
-        window.location.href = "/login";
+        handleLogout();
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

@@ -8,8 +8,8 @@
 
 ```
 src/
-├── lib/http.ts           ← Axios instance + Interceptors + Queue
-├── api/auth.ts           ← Gọi API auth (login, logout, getMe)
+├── lib/http.ts              ← Axios instance + Interceptors + Queue
+├── api/auth.ts              ← Gọi API auth (login, logout, getMe)
 └── contexts/AuthContext.tsx  ← Quản lý đăng nhập/đăng xuất
 ```
 
@@ -40,7 +40,7 @@ const http = axios.create({
 });
 
 // ── Quản lý trạng thái refresh ──
-let isRefreshing = false;        // true = đang gọi refresh, request sau phải chờ
+let isRefreshing = false;          // true = đang gọi refresh, request sau phải chờ
 let failedQueue: QueueItem[] = []; // Hàng đợi các request đang chờ token mới
 
 // Đánh thức tất cả request trong queue
@@ -55,12 +55,26 @@ const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue = [];
 };
 
+// Xoá token & redirect về login (tránh redirect nếu đã ở /login)
+const handleLogout = () => {
+  localStorage.removeItem("accessToken");
+  localStorage.removeItem("refreshToken");
+  if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+    window.location.href = "/login";
+  }
+};
+
 // ── Request Interceptor: tự gắn token vào mọi request ──
 http.interceptors.request.use(
   (config) => {
     const accessToken = localStorage.getItem("accessToken");
     if (accessToken) {
-      config.headers.Authorization = `Bearer ${accessToken}`;
+      // Tương thích cả Axios v0 và Axios v1
+      if (config.headers?.set) {
+        config.headers.set("Authorization", `Bearer ${accessToken}`);
+      } else {
+        config.headers.Authorization = `Bearer ${accessToken}`;
+      }
     }
     return config;
   },
@@ -86,7 +100,12 @@ http.interceptors.response.use(
           failedQueue.push({ resolve, reject });
         })
           .then((token) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`;
+            originalRequest._retry = true; // Đánh dấu đã retry để chống lặp
+            if (originalRequest.headers?.set) {
+              originalRequest.headers.set("Authorization", `Bearer ${token}`);
+            } else {
+              originalRequest.headers.Authorization = `Bearer ${token}`;
+            }
             return http(originalRequest);
           })
           .catch((err) => Promise.reject(err));
@@ -100,9 +119,7 @@ http.interceptors.response.use(
 
       if (!refreshToken) {
         isRefreshing = false;
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
-        window.location.href = "/login";
+        handleLogout();
         return Promise.reject(error);
       }
 
@@ -111,26 +128,31 @@ http.interceptors.response.use(
         const res = await axios.post<{
           message: string;
           accessToken: string;
-          refreshToken: string;
+          refreshToken?: string;  // Optional: server có thể không trả nếu không rotation
         }>(`${http.defaults.baseURL}/auth/refresh`, {
           refreshToken,
         });
 
         const { accessToken: newAccessToken, refreshToken: newRefreshToken } = res.data;
 
+        // Lưu token mới (Refresh Token Rotation)
         localStorage.setItem("accessToken", newAccessToken);
         if (newRefreshToken) {
           localStorage.setItem("refreshToken", newRefreshToken);
         }
 
         processQueue(null, newAccessToken);       // Đánh thức queue
-        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+
+        // Gán token mới và gọi lại request ban đầu
+        if (originalRequest.headers?.set) {
+          originalRequest.headers.set("Authorization", `Bearer ${newAccessToken}`);
+        } else {
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        }
         return http(originalRequest);             // Retry request gốc
       } catch (refreshError) {
         processQueue(refreshError, null);         // Reject tất cả queue
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
-        window.location.href = "/login";
+        handleLogout();
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;                     // Luôn reset cờ
@@ -238,14 +260,20 @@ export function useAuth() {
 ```
 Request bị 401
   │
+  ├─ Là /auth/login hoặc /auth/refresh? → Bỏ qua, reject lỗi
+  ├─ Đã _retry rồi? → Bỏ qua, reject lỗi
+  │
   ├─ Đang refresh? (isRefreshing = true)
-  │     → Vào hàng đợi, chờ token mới, rồi retry
+  │     → Vào hàng đợi, chờ token mới, đánh dấu _retry, rồi retry
   │
   └─ Chưa refresh? (isRefreshing = false)
-        → Gọi /auth/refresh
+        → Gọi /auth/refresh (dùng axios gốc, không qua interceptor)
         → Thành công: lưu token mới → đánh thức queue → retry
-        → Thất bại: reject queue → xoá token → về /login
+        → Thất bại: reject queue → handleLogout()
+        → Finally: isRefreshing = false
 ```
+
+---
 
 ## 🔧 Khi dùng lại cho dự án mới
 
