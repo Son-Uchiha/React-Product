@@ -1,4 +1,5 @@
 import http from "../lib/http";
+import type { User } from "../types";
 
 export const authApi = {
   login: async (username: string, password: string) => {
@@ -13,5 +14,9 @@ export const authApi = {
       refreshToken,
     });
     return data;
+  },
+  getMe: async () => {
+    const { data } = await http.get<{ data: User }>("/auth/me");
+    return data.data;
   },
 };

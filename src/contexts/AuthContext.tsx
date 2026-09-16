@@ -1,10 +1,12 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { authApi } from "../api/auth";
+import type { User } from "../types";
 
 type AuthContextType = {
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  user: User | null;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -13,6 +15,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(
     Boolean(localStorage.getItem("accessToken")),
   );
+
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      authApi.getMe().then(setUser);
+    }
+  }, [isAuthenticated]);
+
   const login = async (username: string, password: string) => {
     const data = await authApi.login(username, password);
     localStorage.setItem("accessToken", data.accessToken);
@@ -31,6 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext
       value={{
+        user,
         isAuthenticated,
         login,
         logout,
