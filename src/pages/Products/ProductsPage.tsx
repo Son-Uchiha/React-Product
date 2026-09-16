@@ -34,7 +34,7 @@ const displayedProducts = mockProducts.slice(0, LIMIT)
 const inputCls =
   'border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 w-full'
 
-const inputErrCls =
+export const inputErrCls =
   'border border-red-400 bg-red-50 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-inset focus:ring-red-400 w-full'
 
 export default function ProductsPage() {
