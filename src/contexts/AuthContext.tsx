@@ -1,12 +1,13 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { authApi } from "../api/auth";
 import type { User } from "../types";
+import { useQuery } from "@tanstack/react-query";
 
 type AuthContextType = {
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  user: User | null;
+  user: User | undefined;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -16,13 +17,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     Boolean(localStorage.getItem("accessToken")),
   );
 
-  const [user, setUser] = useState<User | null>(null);
+  // Queries
+  const { data: user } = useQuery({
+    queryKey: ["todos"],
+    queryFn: authApi.getMe,
+    enabled: isAuthenticated,
+  });
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      authApi.getMe().then(setUser);
-    }
-  }, [isAuthenticated]);
+  console.log(user);
 
   const login = async (username: string, password: string) => {
     const data = await authApi.login(username, password);
