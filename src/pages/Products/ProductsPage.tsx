@@ -24,6 +24,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { productsApi } from "../../api/products";
 import { useSearchParams } from "react-router";
+import { useRef, useState } from "react";
 
 const SORT_OPTIONS = [
   { value: "created_at", label: "Date Created" },
@@ -43,12 +44,17 @@ export const inputErrCls =
 export default function ProductsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const page = Number(searchParams.get("page") ?? 1);
+  const searchFromUrl = searchParams.get("search") ?? "";
+  const [searchInput, setSearchInput] = useState(searchFromUrl);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const { data } = useQuery({
-    queryKey: ["products", { page, limit: LIMIT }],
+    queryKey: ["products", { page, limit: LIMIT, search: searchFromUrl }],
     queryFn: () =>
       productsApi.getProducts({
         page,
         limit: LIMIT,
+        search: searchFromUrl,
       }),
   });
   const products = data?.data ?? [];
@@ -71,6 +77,32 @@ export default function ProductsPage() {
     pages.push(totalPages);
     return pages;
   };
+
+  const updateParams = (updates: Record<string, string | null>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      Object.entries(updates).forEach(([key, value]) => {
+        if (value === null || value === "") {
+          next.delete(key);
+        } else {
+          next.set(key, value);
+        }
+      });
+      return next;
+    });
+  };
+
+  const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setSearchInput(value);
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+    }
+    searchTimerRef.current = setTimeout(() => {
+      updateParams({ page: "1", search: value });
+    }, 500);
+  };
+
   const createState = useOverlayState();
   return (
     <div>
@@ -93,6 +125,8 @@ export default function ProductsPage() {
           type="text"
           placeholder="Search by name..."
           className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset"
+          value={searchInput}
+          onChange={handleSearchInputChange}
         />
         <select
           defaultValue="created_at"
@@ -205,7 +239,7 @@ export default function ProductsPage() {
             <Pagination.Item>
               <Pagination.Previous
                 isDisabled={page === 1}
-                onPress={() => setSearchParams({ page: String(page - 1) })}
+                onPress={() => updateParams({ page: String(page - 1) })}
               >
                 <Pagination.PreviousIcon />
                 <span>Previous</span>
@@ -220,7 +254,7 @@ export default function ProductsPage() {
                 <Pagination.Item key={p}>
                   <Pagination.Link
                     isActive={p === page}
-                    onPress={() => setSearchParams({ page: String(p) })}
+                    onPress={() => updateParams({ page: String(p) })}
                   >
                     {p}
                   </Pagination.Link>
@@ -230,7 +264,7 @@ export default function ProductsPage() {
             <Pagination.Item>
               <Pagination.Next
                 isDisabled={page >= totalPages}
-                onPress={() => setSearchParams({ page: String(page + 1) })}
+                onPress={() => updateParams({ page: String(page + 1) })}
               >
                 <span>Next</span>
                 <Pagination.NextIcon />
