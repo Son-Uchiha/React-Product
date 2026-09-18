@@ -22,7 +22,7 @@ import {
 } from "@heroui/react";
 
 import { useQuery } from "@tanstack/react-query";
-import { productsApi } from "../../api/products";
+import { productsApi, type ProductsQuery } from "../../api/products";
 import { useSearchParams } from "react-router";
 import { useRef, useState } from "react";
 
@@ -47,14 +47,21 @@ export default function ProductsPage() {
   const searchFromUrl = searchParams.get("search") ?? "";
   const [searchInput, setSearchInput] = useState(searchFromUrl);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+  const sortBy = (searchParams.get("sortBy") ??
+    "created_at") as ProductsQuery["sort_by"];
+  const order = (searchParams.get("order") ?? "desc") as ProductsQuery["order"];
   const { data } = useQuery({
-    queryKey: ["products", { page, limit: LIMIT, search: searchFromUrl }],
+    queryKey: [
+      "products",
+      { page, limit: LIMIT, search: searchFromUrl, sort_by: sortBy, order },
+    ],
     queryFn: () =>
       productsApi.getProducts({
         page,
         limit: LIMIT,
         search: searchFromUrl,
+        sort_by: sortBy,
+        order,
       }),
   });
   const products = data?.data ?? [];
@@ -129,6 +136,13 @@ export default function ProductsPage() {
           onChange={handleSearchInputChange}
         />
         <select
+          value={sortBy}
+          onChange={(e) =>
+            updateParams({
+              page: "1",
+              sortBy: e.target.value,
+            })
+          }
           defaultValue="created_at"
           className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset"
         >
@@ -138,8 +152,17 @@ export default function ProductsPage() {
             </option>
           ))}
         </select>
-        <Button variant="outline" size="sm">
-          ↓ Descending
+        <Button
+          variant="outline"
+          size="sm"
+          onPress={() =>
+            updateParams({
+              page: "1",
+              order: order === "asc" ? "desc" : "asc",
+            })
+          }
+        >
+          {order === "asc" ? "↑ Ascending" : "↓ Descending"}
         </Button>
       </div>
 
